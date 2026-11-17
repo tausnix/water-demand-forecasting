@@ -1,0 +1,37 @@
+{
+  "source": "Hourly Water Demand of a Mixed District Recorded by Supplier",
+  "zenodo_record": "11045013",
+  "doi": "10.5281/zenodo.11045013",
+  "synthetic": false,
+  "rows": 46032,
+  "columns": [
+    "Date",
+    "Time",
+    "Consumption",
+    "Temperature",
+    "Rain",
+    "Sun"
+  ],
+  "missing": {
+    "Date": 0,
+    "Time": 0,
+    "Consumption": 0,
+    "Temperature": 0,
+    "Rain": 25,
+    "Sun": 0
+  },
+  "date_min": "1/1/2016",
+  "date_max": "4/1/2021",
+  "consumption_describe": {
+    "count": 46032.0,
+    "mean": 2314.3425443169967,
+    "std": 1032.1380945936571,
+    "min": 1.0,
+    "25%": 1461.0,
+    "50%": 2550.0,
+    "75%": 3082.0,
+    "max": 6514.0
+  },
+  "sha256": "3acf63ff46af582c00748a0d46fc4f10b1038a4eaf542a9cb882275d480b093a",
+  "bytes": 1712036
+}

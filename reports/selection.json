@@ -1,0 +1,8 @@
+{
+  "selected_before_test": "voting_regressor",
+  "locked_test_used_for_selection": false,
+  "selection_metric": "validation MAE",
+  "validation_mae": 148.96784416259325,
+  "runner_up_margin": 1.0935101507470506,
+  "candidates": 9
+}

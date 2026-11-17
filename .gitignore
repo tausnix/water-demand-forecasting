@@ -1,0 +1,40 @@
+# Data (the raw CSV is committed: 1.7 MB, CC-BY-4.0, pinned by sha256)
+data/interim/
+data/processed/
+
+# Model binaries
+models/*.joblib
+models/*.pkl
+models/*.onnx
+# ...except the deployed models, which Streamlit Cloud must be able to load
+!models/voting_regressor.joblib
+!models/xgboost.joblib
+!models/metadata.json
+
+# Artefacts
+reports/figures/*.png
+!reports/figures/.gitkeep
+artifacts/
+logs/
+.mlruns/
+optuna/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Secrets
+.streamlit/secrets.toml
+.env

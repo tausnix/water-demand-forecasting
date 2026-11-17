@@ -1,0 +1,10 @@
+# Deployment requirements (Streamlit Community Cloud).
+# Deliberately does NOT include TensorFlow / Optuna / keras-tuner:
+# they are training-only and would blow the 1 GB free-tier RAM budget.
+numpy==2.2.6
+pandas==2.3.3
+scikit-learn==1.7.2
+xgboost==2.1.4
+joblib==1.5.2
+streamlit==1.51.0
+plotly==6.3.1
