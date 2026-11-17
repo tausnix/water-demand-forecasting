@@ -1,10 +1,15 @@
 # Deployment requirements (Streamlit Community Cloud).
-# Deliberately does NOT include TensorFlow / Optuna / keras-tuner:
-# they are training-only and would blow the 1 GB free-tier RAM budget.
-numpy==2.2.6
-pandas==2.3.3
-scikit-learn==1.7.2
-xgboost==2.1.4
-joblib==1.5.2
-streamlit==1.51.0
-plotly==6.3.1
+#
+# Deliberately excludes TensorFlow / Optuna / keras-tuner: those are
+# training-only and would not fit the free tier's 1 GB RAM budget.
+#
+# `xgboost-cpu` is the CPU-only distribution of the same version used in
+# training. Same module name (`xgboost`), same pickle format, but without the
+# ~800 MB of CUDA runtime that the default Linux wheel drags in.
+numpy==2.5.4
+pandas==3.1.1
+scikit-learn==1.9.1
+xgboost-cpu==3.4.1
+joblib==1.6.0
+streamlit==1.67.0
+plotly==7.1.0

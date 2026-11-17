@@ -56,7 +56,14 @@ def load_json(path: str) -> dict:
 @st.cache_data(show_spinner=False)
 def load_csv(path: str):
     target = Path(path)
-    return pd.read_csv(target, parse_dates=["timestamp"]) if target.exists() else pd.DataFrame()
+    if not target.exists():
+        return pd.DataFrame()
+    frame = pd.read_csv(target)
+    # Not every artefact is time-indexed (importance.csv is not), so only parse
+    # the timestamp when the column is actually present.
+    if "timestamp" in frame.columns:
+        frame["timestamp"] = pd.to_datetime(frame["timestamp"], errors="coerce")
+    return frame
 
 
 raw = load_raw()
@@ -67,11 +74,9 @@ predictions = load_csv(str(config.REPORTS_DIR / "locked_test_predictions.csv"))
 importance = load_csv(str(config.REPORTS_DIR / "importance.csv"))
 
 selected_name = metrics.get("selection", {}).get("selected_before_test", "voting_regressor")
-available = [
-    name
-    for name in ("voting_regressor", "xgboost")
-    if (config.MODELS_DIR / f"{name}.joblib").exists()
-]
+available = sorted(path.stem for path in config.MODELS_DIR.glob("*.joblib"))
+if selected_name in available:  # keep the reported model first in the selector
+    available = [selected_name] + [m for m in available if m != selected_name]
 
 # --------------------------------------------------------------------------- #
 # Sidebar
@@ -202,7 +207,7 @@ with tab_forecast:
                 legend=dict(orientation="h", y=1.1),
                 yaxis_title="m³ / hour",
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
             with st.expander("Persistence anchors used by the feature builder"):
                 st.json(anchors)
@@ -244,7 +249,7 @@ with tab_backtest:
         )
         fig.update_layout(height=380, margin=dict(l=0, r=0, t=10, b=0),
                           yaxis_title="m³ / hour", legend=dict(orientation="h", y=1.1))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
         left, right = st.columns(2)
         with left:
@@ -258,7 +263,7 @@ with tab_backtest:
             f2.update_layout(height=300, title="MAE by hour of day",
                              xaxis_title="hour", yaxis_title="MAE (m³)",
                              margin=dict(l=0, r=0, t=40, b=0))
-            st.plotly_chart(f2, use_container_width=True)
+            st.plotly_chart(f2, width="stretch")
 
         with right:
             resid = view["actual"] - view[column]
@@ -268,7 +273,7 @@ with tab_backtest:
             f3.update_layout(height=300, title="Residuals (actual − predicted)",
                              xaxis_title="m³", yaxis_title="hours",
                              margin=dict(l=0, r=0, t=40, b=0))
-            st.plotly_chart(f3, use_container_width=True)
+            st.plotly_chart(f3, width="stretch")
 
         c1, c2, c3 = st.columns(3)
         c1.metric("Mean error (bias)", f"{resid.mean():+.1f} m³")
@@ -298,7 +303,7 @@ with tab_models:
             table.sort_values("MAE").style.format(
                 {"MAE": "{:.2f}", "RMSE": "{:.2f}", "R²": "{:.4f}", "sMAPE %": "{:.2f}"}
             ),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 
@@ -314,7 +319,7 @@ with tab_models:
         )
         f.update_layout(height=340, yaxis_title="Validation MAE (m³)",
                         margin=dict(l=0, r=0, t=10, b=0))
-        st.plotly_chart(f, use_container_width=True)
+        st.plotly_chart(f, width="stretch")
 
     if not locked.empty:
         st.markdown("**Locked test — opened once, after selection was frozen**")
@@ -324,7 +329,7 @@ with tab_models:
             lt.style.format(
                 {"MAE": "{:.2f}", "RMSE": "{:.2f}", "R²": "{:.4f}", "sMAPE %": "{:.2f}"}
             ),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
         skill = metrics.get("skill_vs_naive_lag_168")
@@ -338,7 +343,7 @@ with tab_models:
     cv = pd.DataFrame(metrics.get("cv", []))
     if not cv.empty:
         st.markdown("**TimeSeriesSplit cross-validation (refit inside every fold)**")
-        st.dataframe(cv, use_container_width=True, hide_index=True)
+        st.dataframe(cv, width="stretch", hide_index=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -367,7 +372,7 @@ with tab_drivers:
             xaxis_title="increase in MAE when the feature is shuffled (m³)",
             margin=dict(l=0, r=0, t=10, b=0),
         )
-        st.plotly_chart(f, use_container_width=True)
+        st.plotly_chart(f, width="stretch")
         st.caption(
             "Permutation importance on the validation block. Demand history "
             "dominates, as expected for a one-hour horizon; weather contributes "

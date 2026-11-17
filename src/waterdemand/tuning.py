@@ -38,7 +38,7 @@ def optuna_xgb(
 
     def objective(trial: "optuna.Trial") -> float:
         params = {
-            "n_estimators": trial.suggest_int("n_estimators", 180, 520, step=80),
+            "n_estimators": trial.suggest_int("n_estimators", 180, 500, step=80),
             "max_depth": trial.suggest_int("max_depth", 4, 10),
             "learning_rate": trial.suggest_float("learning_rate", 0.02, 0.12, log=True),
             "min_child_weight": trial.suggest_int("min_child_weight", 1, 8),
@@ -74,6 +74,7 @@ def optuna_xgb(
         "best_params": study.best_params,
         "trials_completed": len(study.trials),
         "search_data": "training rows only",
+        "validation": metrics,
     }
     config.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     (config.REPORTS_DIR / "optuna_xgb.json").write_text(

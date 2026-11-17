@@ -40,15 +40,93 @@ demand history, calendar position and *lagged* weather observations.
 `scripts/download_data.py` fetches the CSV and verifies a pinned SHA-256, so a
 swapped or edited file fails loudly instead of training silently.
 
-**Data quality notes found during EDA:** `Rain` has 25 missing values; 48 hours
-report physically implausible consumption (< 100 m³ against a 2,550 m³ median);
-rain is exactly zero in 96.8% of hours, which makes the ordered rain-intensity
-feature almost constant; and mean daily demand drifts upward ~21% across the
-five years.
+## Data quality and domain findings
+
+Four properties of this series shaped every modelling decision. All of them are
+computed by `scripts/data_quality.py` into `reports/data_quality.json` — nothing
+here is hand-entered.
+
+### 1. 48 sensor-dropout hours below 100 m³
+
+Median hourly consumption is **2,550 m³**; the minimum recorded value is **1 m³**
+(2016-10-23 05:00). 48 hours fall below 100 m³ and 547 below 300 m³.
+
+| Timestamp | Consumption |
+|---|---:|
+| 2016-10-23 05:00 | 1 m³ |
+| 2017-04-06 02:00 | 5 m³ |
+| 2016-10-20 04:00 | 6 m³ |
+| 2017-04-14 05:00 | 7 m³ |
+| 2016-09-05 03:00 | 8 m³ |
+| 2017-11-26 05:00 | 10 m³ |
+
+These are telemetry faults, not demand troughs — the genuine intraday minimum is
+about 692 m³ at 03:00. They cluster in the **02:00–05:00** low-flow window, when
+loggers are most likely to be serviced or to under-read.
+
+**Impact.** Each bad value contaminates seven lag features and up to 168 hours of
+rolling statistics, so one dropout degrades a week of subsequent predictions.
+They are 0.10% of rows and therefore invisible in aggregate MAE — which is
+exactly why they are documented rather than silently smoothed. They are left in
+place: deleting them would break the contiguity the lag structure depends on, and
+the 2,550 m³ prior is far better than anything the neighbouring 03:00 hours could
+supply.
+
+### 2. Rain is zero in 96.8% of hours
+
+The ordered `rain_intensity` feature has one dominant class, so the encoding is
+correct in principle (the ordering is physical, so ordinal beats one-hot) but
+carries almost no information. Permutation importance confirms it: no weather
+feature reaches the top eight. Any claim that rain intensity drives demand on
+this dataset would be unsupported.
+
+### 3. A +20.7% upward trend, and it shows up as forecast bias
+
+Mean hourly demand rises from **2,097 m³** (2016) to **2,534 m³** (2020). Because
+the split is chronological, the test block sits above the range the model was
+trained on. The consequence is measurable: the final model **under-forecasts by
+27.7 m³ on average** and does so on **56% of hours**.
+
+That is a clean demonstration of distribution shift, and the right response is a
+rolling refit — not a constant offset, which would only hide the drift.
+
+### 4. Demand swings 5× within a day — which is why lag-1 is a weak baseline
+
+| Hour | Mean demand |
+|---|---:|
+| 03:00 | 692 m³ |
+| 09:00 | 3,456 m³ |
+| 10:00 | 3,465 m³ |
+| 22:00 | 2,083 m³ |
+
+![Mean demand by hour of day](reports/figures/02_intraday_profile.png)
+
+*A 5× swing between the 04:00 trough and the 10:00 peak. This is the shape any
+one-hour-ahead model has to track.*
+
+The autocorrelation ladder explains the whole baseline choice:
+
+| Lag | Autocorrelation |
+|---|---:|
+| 1 h | 0.9012 |
+| 3 h | 0.4805 |
+| 24 h | 0.9122 |
+| 168 h | **0.9287** |
+
+Same-hour-last-week correlates better than hour-to-hour, because lag-1 is
+contaminated by the *direction of travel* within the day. Hence `lag_168` is both
+a feature and the honest baseline.
+
 
 ## Results
 
 Chronological 70 / 15 / 15 split — 32,104 / 6,880 / 6,880 rows. No shuffling.
+
+![Hourly demand 2016–2021 with the 70/15/15 split boundaries](reports/figures/01_series_and_splits.png)
+
+*Five years of hourly demand. The dashed lines are the train/validation and
+validation/test boundaries. The five-fold intraday oscillation and the upward
+drift are both visible before any modelling.*
 
 ### Validation block (this is what selection used)
 
@@ -64,8 +142,23 @@ Chronological 70 / 15 / 15 split — 32,104 / 6,880 / 6,880 rows. No shuffling.
 | naive_lag_24 | 291.24 | 427.06 | 0.8259 | 16.20% |
 | naive_lag_1 | 336.09 | 454.73 | 0.8026 | 19.78% |
 
-Also benchmarked on this block: Optuna-tuned XGBoost and a Keras-Tuner MLP
-(see `reports/metrics.json`).
+Two further candidates were benchmarked on the same block:
+
+| Model | Family | MAE | R² | sMAPE |
+|---|---|---:|---:|---:|
+| tuned_xgboost | 30-trial Optuna, train-only | 150.82 | 0.9581 | 8.99% |
+| keras_mlp | 15-trial Keras Tuner, 2×64 | 173.53 | 0.9467 | 10.40% |
+
+Neither displaced the ensemble, and the tuned XGBoost is **0.76 m³ worse** than
+the untuned one it was derived from. That is the expected result once the search
+stops peeking at the validation block — it is written up in `docs/PARITY.md`
+rather than omitted.
+
+![Actual vs predicted on the validation block](reports/figures/03_validation_forecast.png)
+
+*Two weeks of validation forecasts. The model tracks the daily cycle closely; the
+visible misses are the sharp upward ramps at 06:00–08:00, where one hour of
+history is least informative about the next.*
 
 ### Locked test — opened exactly once
 
@@ -91,7 +184,22 @@ voting ensemble         158.3   ← 44.0% better
 
 ### Cross-validation
 
-<!--CV_TABLE-->
+`TimeSeriesSplit`, 5 expanding folds over train+validation, every transformer
+refit inside each fold. The voting ensemble **is included** — the reference
+implementation left it out, which is why this table is the stronger evidence.
+
+| Model | CV MAE | ± std | RMSE | R² | sMAPE |
+|---|---:|---:|---:|---:|---:|
+| **voting_regressor** | **152.78** | ±16.74 | **213.97** | **0.9542** | **9.74%** |
+| xgboost | 155.93 | ±15.49 | 218.13 | 0.9524 | 9.89% |
+| bagging_extra_tree | 156.84 | ±19.67 | 218.71 | 0.9520 | 10.09% |
+| hist_gradient_boosting | 157.25 | ±16.19 | 219.62 | 0.9518 | 9.98% |
+
+The ensemble wins CV as well as validation, so the selection is not an artefact
+of one lucky window. The ±16–20 m³ spread across folds is larger than the 1–3 m³
+gaps between models, and that is stated plainly: these four are close, and the
+ensemble is preferred for robustness under distribution shift rather than because
+it is decisively better.
 
 ## Methodology
 
@@ -152,9 +260,14 @@ water-demand-forecasting/
 │  └─ inference.py              one-hour-ahead from a history window
 ├─ scripts/
 │  ├─ download_data.py          fetch + verify
+│  ├─ data_quality.py           the §Data quality numbers
+│  ├─ tune.py                   Optuna + Keras Tuner (run once, then reuse)
 │  ├─ train_all.py              end-to-end run
 │  └─ make_report.py            permutation importance + figures
-├─ tests/test_no_leakage.py     13 assertions
+├─ tests/test_no_leakage.py     13 causal/leakage assertions
+├─ tests/test_app.py            4 headless AppTest smoke tests
+├─ docs/PARITY.md               reproduction vs the reference implementation
+├─ reports/PROJECT_REPORT.md    full narrative write-up
 ├─ models/                      voting_regressor.joblib, xgboost.joblib, metadata
 └─ reports/                     metrics.json, split.json, importance.csv, figures
 ```
@@ -166,14 +279,17 @@ python -m venv .venv && .venv\Scripts\activate      # Windows
 pip install -r requirements-dev.txt
 
 python scripts/download_data.py                    # fetch + verify ~1.7 MB
-python -m pytest -q                                # 13 leakage/integrity tests
-python scripts/train_all.py --skip-tune            # baseline → ensemble → CV → locked test
+python -m pytest -q                                # 17 tests: 13 leakage + 4 app
+python scripts/data_quality.py                     # the findings above
+python scripts/tune.py                             # Optuna + Keras Tuner (slow, run once)
+python scripts/train_all.py --reuse-tuning         # baselines → ensembles → CV → locked test
 python scripts/make_report.py                      # importance + figures
 streamlit run app.py
 ```
 
-A full run is ~4 minutes on CPU. `--skip-tune` omits Optuna and the Keras MLP;
-drop it (and `pip install tensorflow keras-tuner`) for the complete benchmark.
+`train_all.py` runs in ~4 minutes on CPU and omits tuning with `--skip-tune`.
+Tuning is separated into `tune.py` because it is the slow stage and its results
+are reused via `--reuse-tuning` — the pipeline stays idempotent.
 
 ## The app
 

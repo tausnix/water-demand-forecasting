@@ -74,3 +74,25 @@ These change results on purpose and are documented rather than hidden:
 | Dataset in repo | absent (local zip path) | downloaded + SHA-256 verified | Anyone can reproduce |
 
 The reproducing configuration is the default: `python scripts/train_all.py`.
+
+## Does the tuning fix change the conclusion?
+
+Yes, and it is worth stating precisely, because it is the clearest evidence that
+the reference's search was contaminated.
+
+| | Validation MAE |
+|---|---:|
+| Untuned XGBoost | 150.06 |
+| Reference "tuned" XGBoost — search included validation | **149.69** |
+| This build — search restricted to training rows | **150.82** |
+
+Under the reference's protocol the tuned model appeared **0.37 m³ better** than
+its untuned parent. Under a clean search over training rows only, the same search
+space and budget produce a model **0.76 m³ worse**. The apparent gain was the
+search fitting the validation window it was subsequently scored on.
+
+Practical consequence: tuning did not beat the untuned ensemble, and the voting
+regressor remains the selected model. That is reported rather than papered over —
+"we ran Optuna" and "Optuna helped" are different claims, and only the first one
+is true here.
+

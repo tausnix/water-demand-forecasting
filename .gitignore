@@ -12,12 +12,20 @@ models/*.onnx
 !models/metadata.json
 
 # Artefacts
+# Figures are committed on purpose: they are the report's evidence.
 reports/figures/*.png
 !reports/figures/.gitkeep
+!reports/figures/01_series_and_splits.png
+!reports/figures/02_intraday_profile.png
+!reports/figures/03_validation_forecast.png
 artifacts/
 logs/
 .mlruns/
 optuna/
+reports/keras_tuner/
+
+# Local run logs
+*.log
 
 # Python
 __pycache__/

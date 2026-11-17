@@ -51,7 +51,11 @@ jobs:
       - name: Install deploy dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt pytest
 
       - name: Byte-compile the app
         run: python -m py_compile app.py
+
+      - name: Headless app smoke test
+        # AppTest executes the script for real; a green health check does not.
+        run: python -m pytest -q tests/test_app.py

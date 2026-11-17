@@ -1,0 +1,21 @@
+{
+  "best_value_cv_mae_train_only": 157.98631394734284,
+  "best_params": {
+    "n_estimators": 260,
+    "max_depth": 8,
+    "learning_rate": 0.023265914450511002,
+    "min_child_weight": 5,
+    "subsample": 0.9247078377122708,
+    "colsample_bytree": 0.7416589062348684,
+    "reg_alpha": 0.00048188184793054184,
+    "reg_lambda": 0.8470451202132103
+  },
+  "trials_completed": 30,
+  "search_data": "training rows only",
+  "validation": {
+    "mae": 150.8189511143884,
+    "rmse": 209.5948576595543,
+    "r2": 0.9580720738507132,
+    "smape_pct": 8.99124737923543
+  }
+}

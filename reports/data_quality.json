@@ -1,0 +1,141 @@
+{
+  "rows_raw": 46032,
+  "rows_usable": 45864,
+  "missing": {
+    "Date": 0,
+    "Time": 0,
+    "Consumption": 0,
+    "Temperature": 0,
+    "Rain": 25,
+    "Sun": 0
+  },
+  "consumption": {
+    "mean_m3": 2314.34,
+    "median_m3": 2550.0,
+    "min_m3": 1.0,
+    "max_m3": 6514.0,
+    "hours_below_100_m3": 48,
+    "hours_below_300_m3": 547,
+    "share_below_100_pct": 0.1043,
+    "lowest_readings": [
+      {
+        "timestamp": "2016-10-23 05:00",
+        "Consumption": 1
+      },
+      {
+        "timestamp": "2017-04-06 02:00",
+        "Consumption": 5
+      },
+      {
+        "timestamp": "2016-10-20 04:00",
+        "Consumption": 6
+      },
+      {
+        "timestamp": "2017-04-14 05:00",
+        "Consumption": 7
+      },
+      {
+        "timestamp": "2016-09-05 03:00",
+        "Consumption": 8
+      },
+      {
+        "timestamp": "2017-11-26 05:00",
+        "Consumption": 10
+      },
+      {
+        "timestamp": "2018-05-28 01:00",
+        "Consumption": 18
+      },
+      {
+        "timestamp": "2017-09-11 01:00",
+        "Consumption": 21
+      }
+    ]
+  },
+  "rain": {
+    "missing": 25,
+    "zero_share": 0.96783,
+    "band_counts": {
+      "none": 44526,
+      "moderate": 1310,
+      "heavy": 171,
+      "light": 0
+    },
+    "band_share": {
+      "none": 0.96728,
+      "moderate": 0.02846,
+      "heavy": 0.00371,
+      "light": 0.0
+    },
+    "verdict": "ordered rain-intensity feature is degenerate: >96% one class"
+  },
+  "yearly": {
+    "2016": {
+      "hours": 8616,
+      "mean_m3": 2099.36,
+      "std_m3": 1016.75
+    },
+    "2017": {
+      "hours": 8760,
+      "mean_m3": 2203.54,
+      "std_m3": 1015.12
+    },
+    "2018": {
+      "hours": 8760,
+      "mean_m3": 2326.17,
+      "std_m3": 1032.4
+    },
+    "2019": {
+      "hours": 8760,
+      "mean_m3": 2385.08,
+      "std_m3": 932.2
+    },
+    "2020": {
+      "hours": 8784,
+      "mean_m3": 2533.48,
+      "std_m3": 1108.53
+    },
+    "2021": {
+      "hours": 2184,
+      "mean_m3": 2421.86,
+      "std_m3": 1002.25
+    }
+  },
+  "trend_pct_2016_to_2020": 20.7,
+  "intraday_mean_m3": {
+    "0": 1352.9,
+    "1": 1007.9,
+    "2": 789.1,
+    "3": 692.1,
+    "4": 750.3,
+    "5": 1039.4,
+    "6": 1667.1,
+    "7": 2589.2,
+    "8": 3128.8,
+    "9": 3456.3,
+    "10": 3465.5,
+    "11": 3328.0,
+    "12": 3224.0,
+    "13": 3108.7,
+    "14": 2955.0,
+    "15": 2752.6,
+    "16": 2632.2,
+    "17": 2727.8,
+    "18": 2941.3,
+    "19": 3000.2,
+    "20": 2804.5,
+    "21": 2300.7,
+    "22": 2082.6,
+    "23": 1779.7
+  },
+  "autocorrelation": {
+    "1": 0.9012,
+    "2": 0.7081,
+    "3": 0.4805,
+    "24": 0.9122,
+    "48": 0.8607,
+    "72": 0.848,
+    "168": 0.9287
+  },
+  "autocorr_note": "lag-168 autocorrelation exceeds lag-1, because demand oscillates within the day; seasonal-naive is therefore the honest baseline"
+}

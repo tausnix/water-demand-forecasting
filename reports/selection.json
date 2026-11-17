@@ -4,5 +4,5 @@
   "selection_metric": "validation MAE",
   "validation_mae": 148.96784416259325,
   "runner_up_margin": 1.0935101507470506,
-  "candidates": 9
+  "candidates": 11
 }

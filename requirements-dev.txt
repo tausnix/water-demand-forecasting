@@ -1,12 +1,21 @@
--r requirements.txt
+# Training / research environment.
+#
+# Kept separate from requirements.txt so the Streamlit deployment stays lean.
+# Note `xgboost` (full wheel) rather than `xgboost-cpu`: identical API and
+# version, but the full wheel is the one that also carries GPU support locally.
 
-# Training / research only.
-matplotlib==3.10.7
-optuna==4.5.0
-tensorflow==2.20.0
-keras-tuner==1.4.7
-shap==0.48.0
-pytest==8.4.2
-jupyter==1.1.1
-nbformat==5.10.4
-nbclient==0.10.2
+numpy==2.5.4
+pandas==3.1.1
+scikit-learn==1.9.1
+xgboost==3.4.1
+joblib==1.6.0
+streamlit==1.67.0
+plotly==7.1.0
+
+matplotlib==3.11.2
+optuna==5.1.0
+tensorflow==2.21.0
+keras==3.15.1
+keras-tuner==1.4.8
+tensorboard==2.21.0   # keras-tuner imports it for the HParams callback
+pytest==9.2.0

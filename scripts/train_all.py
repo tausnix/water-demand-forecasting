@@ -26,10 +26,52 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from waterdemand import config, data, evaluate, features, models, splits, train  # noqa: E402
 
 
+def _load_cached_tuning() -> tuple[dict, dict]:
+    """Read tuning artefacts written by scripts/tune.py.
+
+    Keeps the pipeline idempotent: tuning is the expensive, slow-moving part, so
+    it is run once and reused while the rest of the pipeline is iterated on.
+    """
+    rows: dict[str, dict] = {}
+    params: dict[str, dict] = {}
+
+    xgb_path = config.REPORTS_DIR / "optuna_xgb.json"
+    if xgb_path.exists():
+        payload = json.loads(xgb_path.read_text(encoding="utf-8"))
+        if "validation" in payload:
+            rows["tuned_xgboost"] = {
+                "model": "tuned_xgboost",
+                "stage": "tuned",
+                **payload["validation"],
+            }
+            params["tuned_xgboost"] = payload["best_params"]
+    else:
+        print(f"  [warn] {xgb_path.name} missing")
+
+    mlp_path = config.REPORTS_DIR / "keras_mlp.json"
+    if mlp_path.exists():
+        payload = json.loads(mlp_path.read_text(encoding="utf-8"))
+        if "validation_metrics" in payload:
+            rows["keras_mlp"] = {
+                "model": "keras_mlp",
+                "stage": "neural",
+                **payload["validation_metrics"],
+            }
+    else:
+        print(f"  [warn] {mlp_path.name} missing")
+
+    return rows, params
+
+
 def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--skip-cv", action="store_true", help="skip TimeSeriesSplit")
     ap.add_argument("--skip-tune", action="store_true", help="skip Optuna and Keras Tuner")
+    ap.add_argument(
+        "--reuse-tuning",
+        action="store_true",
+        help="reuse reports/optuna_xgb.json and keras_mlp.json instead of re-running tuning",
+    )
     ap.add_argument("--quick", action="store_true", help="fewer CV folds / Optuna trials")
     ap.add_argument("--device", default="cpu", choices=["cpu", "cuda"])
     return ap.parse_args()
@@ -69,6 +111,7 @@ def main() -> int:
 
     valid_table = pd.concat([baseline_table, ensemble_table], ignore_index=True)
     tuned_rows: dict[str, dict] = {}
+    tuned_params: dict[str, dict] = {}
 
     if not args.skip_cv:
         print("\n=== 4. TIME-SERIES CV (train+val, refit per fold) ===")
@@ -85,7 +128,12 @@ def main() -> int:
     else:
         cv_summary = pd.DataFrame()
 
-    if not args.skip_tune:
+    if args.reuse_tuning:
+        print("\n=== 5. TUNING (reusing reports/optuna_xgb.json + keras_mlp.json) ===")
+        tuned_rows, tuned_params = _load_cached_tuning()
+        for name, row in tuned_rows.items():
+            print(f"  {name}: validation MAE={row['mae']:.3f}")
+    elif not args.skip_tune:
         print("\n=== 5. TUNING (scored on validation only) ===")
         from waterdemand import tuning
 
@@ -93,6 +141,7 @@ def main() -> int:
             train_df, validation_df, n_trials=8 if args.quick else 30, device=args.device
         )
         tuned_rows["tuned_xgboost"] = {"model": "tuned_xgboost", "stage": "tuned", **xgb_val}
+        tuned_params["tuned_xgboost"] = xgb_params
         print(f"tuned xgboost validation MAE={xgb_val['mae']:.3f}")
 
         try:
@@ -112,6 +161,7 @@ def main() -> int:
         validation_df,
         test_df,
         selection["selected_before_test"],
+        tuned_params.get(selection["selected_before_test"]),
     )
     print(locked_table.to_string(index=False))
 
@@ -122,7 +172,7 @@ def main() -> int:
     print("\n=== 8. SAVE ARTIFACTS ===")
     selected_name = selection["selected_before_test"]
     development = pd.concat([train_df, validation_df], ignore_index=True)
-    pipeline = models.build_pipeline(selected_name)
+    pipeline = models.build_pipeline(selected_name, tuned_params.get(selected_name))
     pipeline.fit(development[config.FEATURES], development[config.TARGET])
     model_path = train.save_model(
         pipeline,
@@ -172,6 +222,7 @@ def main() -> int:
         "feature_count": len(config.FEATURES),
         "validation": valid_table.to_dict(orient="records"),
         "tuned_validation": list(tuned_rows.values()),
+        "tuned_params": tuned_params,
         "cv": cv_summary.to_dict(orient="records"),
         "selection": selection,
         "locked_test": locked_table.to_dict(orient="records"),
@@ -182,6 +233,7 @@ def main() -> int:
         "elapsed_seconds": round(time.perf_counter() - started, 1),
     }
     config.METRICS_JSON.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    locked_table.to_csv(config.REPORTS_DIR / "locked_test_metrics.csv", index=False)
     locked_preds.to_csv(config.REPORTS_DIR / "locked_test_predictions.csv", index=False)
     print(f"metrics: {config.METRICS_JSON}")
 
