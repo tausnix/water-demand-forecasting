@@ -1,0 +1,57 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  leakage-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # the tests only need the modelling stack, not streamlit/tensorflow
+          pip install "numpy==2.2.6" "pandas==2.3.3" "scikit-learn==1.7.2" "pytest==8.4.2"
+
+      - name: Verify dataset checksum
+        run: |
+          python - <<'PY'
+          import sys
+          sys.path.insert(0, "src")
+          from waterdemand import config
+          from waterdemand.data import sha256
+          actual = sha256(config.CANONICAL_CSV)
+          assert actual == config.CANONICAL_SHA256, f"checksum drift: {actual}"
+          print("dataset sha256 OK")
+          PY
+
+      - name: Leakage and integrity tests
+        run: python -m pytest -q
+
+  app-imports:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deploy dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Byte-compile the app
+        run: python -m py_compile app.py
