@@ -14,6 +14,7 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -31,16 +32,72 @@ st.set_page_config(
 # --------------------------------------------------------------------------- #
 # Cyber-teal SCADA palette
 # --------------------------------------------------------------------------- #
-ACCENT = "#06B6D4"                     # cyan — forecast / selected model
-ACCENT_SOFT = "rgba(6, 182, 212, 0.16)"  # confidence band fill
-ACTUAL = "#94A3B8"                     # slate-400 — observations
+ACCENT = "#06B6D4"                     # cyan — bars, selected model
+CYAN = "#22D3EE"                       # bright cyan — observed series, KPI values
+FORECAST = "#FBBF24"                   # amber — forecast overlay
+ACTUAL = "#94A3B8"                     # slate-400 — secondary observations
 MUTED = "#475569"                      # de-emphasised models
-WARN = "#F59E0B"                       # amber — error band, bias
+WARN = "#F59E0B"
 GRID = "rgba(148, 163, 184, 0.14)"
 TEXT = "#F9FAFB"
 TEXT_DIM = "#94A3B8"
 
 BACKTEST_HOURS = 72
+FORECAST_OVERLAY_HOURS = 24
+HEATMAP_DAYS = 24
+
+# --------------------------------------------------------------------------- #
+# Control-room chrome. Streamlit 1.67 exposes keyed containers as .st-key-<key>,
+# which is the only stable selector for restyling individual blocks.
+# --------------------------------------------------------------------------- #
+st.markdown(
+    """
+<style>
+  /* KPI tiles — glowing cyan border, centred oversized value */
+  div[class*="st-key-kpi-"] {
+    border: 1px solid rgba(34, 211, 238, 0.75);
+    border-radius: 12px;
+    background: linear-gradient(180deg, rgba(17, 24, 39, 0.92), rgba(11, 17, 32, 0.92));
+    box-shadow: 0 0 24px rgba(34, 211, 238, 0.28),
+                inset 0 0 30px rgba(34, 211, 238, 0.07);
+    padding: 12px 6px;
+  }
+  div[class*="st-key-kpi-"] [data-testid="stMetricLabel"] p {
+    font-size: 0.95rem;
+    color: #E2E8F0;
+    letter-spacing: 0.01em;
+  }
+  div[class*="st-key-kpi-"] [data-testid="stMetricValue"] {
+    color: #22D3EE;
+    font-size: clamp(1.9rem, 3.9vw, 2.5rem);
+    font-weight: 600;
+    line-height: 1.12;
+    letter-spacing: -0.01em;
+  }
+  div[class*="st-key-kpi-"] [data-testid="stMetricLabel"] {
+    justify-content: center;
+    text-align: center;
+  }
+  div[class*="st-key-kpi-"] [data-testid="stMetric"] {
+    text-align: center;
+    align-items: center;
+  }
+
+  /* Chart panels */
+  div[class*="st-key-panel-"] {
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 12px;
+    background: rgba(17, 24, 39, 0.55);
+    padding: 10px 12px 4px 12px;
+  }
+
+  /* Tighten the hero block */
+  .block-container { padding-top: 2.2rem; }
+  h1 { letter-spacing: -0.02em; }
+</style>
+""",
+    unsafe_allow_html=True,
+)
 
 
 def style_chart(
@@ -51,8 +108,31 @@ def style_chart(
     x_title: str | None = None,
     y_title: str | None = None,
     show_legend: bool = True,
+    tick_angle: int | None = None,
+    tick_format: str | None = None,
+    legend_top_right: bool = False,
 ) -> go.Figure:
     """Apply the control-room look shared by every chart in the app."""
+    legend = (
+        dict(
+            orientation="h",
+            x=1.0,
+            xanchor="right",
+            y=1.02,
+            yanchor="bottom",
+            bgcolor="rgba(0,0,0,0)",
+            font=dict(size=11),
+        )
+        if legend_top_right
+        else dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            x=0,
+            bgcolor="rgba(0,0,0,0)",
+            font=dict(size=11),
+        )
+    )
     fig.update_layout(
         template="plotly_dark",
         paper_bgcolor="rgba(0,0,0,0)",
@@ -64,30 +144,23 @@ def style_chart(
         xaxis_title=x_title,
         yaxis_title=y_title,
         showlegend=show_legend,
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            x=0,
-            bgcolor="rgba(0,0,0,0)",
-            font=dict(size=11),
-        ),
+        legend=legend,
         hoverlabel=dict(
             bgcolor="#111827", bordercolor=ACCENT, font=dict(color=TEXT, size=12)
         ),
     )
     fig.update_xaxes(gridcolor=GRID, zerolinecolor=GRID, linecolor=GRID)
     fig.update_yaxes(gridcolor=GRID, zerolinecolor=GRID, linecolor=GRID)
+    if tick_angle is not None or tick_format is not None:
+        fig.update_xaxes(tickangle=tick_angle, tickformat=tick_format)
     return fig
 
 
-def kpi_card(column, label: str, value: str, note: str | None = None) -> None:
-    """One bordered KPI tile in the top row."""
+def kpi_card(column, key: str, label: str, value: str) -> None:
+    """One glowing KPI tile in the top row."""
     with column:
-        with st.container(border=True):
+        with st.container(border=True, key=key):
             st.metric(label, value)
-            if note:
-                st.caption(note)
 
 
 # --------------------------------------------------------------------------- #
@@ -178,10 +251,6 @@ with st.sidebar:
 # Header
 # --------------------------------------------------------------------------- #
 st.title("Hourly Water Demand Forecasting")
-st.caption(
-    "One-hour-ahead aggregate demand for a mixed residential / commercial / "
-    "industrial district — 45,864 hourly observations, 2016–2021."
-)
 
 if not (config.MODELS_DIR / f"{model_name}.joblib").exists():
     st.error(
@@ -199,30 +268,20 @@ next_ts = latest_ts + pd.Timedelta(hours=1)
 next_hour = forecast_at(model_name, next_ts.isoformat())
 
 k1, k2, k3, k4 = st.columns(4)
-kpi_card(
-    k1,
-    "Next Hour Forecast",
-    f"{next_hour['prediction']:,.0f} m³",
-    f"for {next_ts:%d %b %Y, %H:%M}",
-)
+kpi_card(k1, "kpi-next", "Next Hour Forecast", f"{next_hour['prediction']:,.0f} m³/h")
 kpi_card(
     k2,
-    "Locked-Test R²",
+    "kpi-r2",
+    "R² Score",
     f"{locked_selected['r2']:.4f}" if locked_selected else "—",
-    "unseen 6,880 hours",
 )
 kpi_card(
     k3,
+    "kpi-mae",
     "Locked-Test MAE",
-    f"{locked_selected['mae']:.2f} m³" if locked_selected else "—",
-    "selected before the test was read",
+    f"{locked_selected['mae']:.2f}" if locked_selected else "—",
 )
-kpi_card(
-    k4,
-    "Skill vs. Naive",
-    f"+{skill:.1%}" if skill else "—",
-    "vs same hour last week",
-)
+kpi_card(k4, "kpi-skill", "Skill vs Naive", f"+{skill:.1%} ↗" if skill else "—")
 
 st.write("")
 
@@ -243,126 +302,114 @@ with tab_forecast:
         column = model_name if model_name in predictions.columns else selected_name
         view = predictions.tail(BACKTEST_HOURS).copy()
 
-        # Empirical 90% band from the whole locked-test residual distribution,
-        # not from the 72 hours on screen (which would be circular).
-        resid_all = predictions["actual"] - predictions[column]
-        lo, hi = resid_all.quantile(0.05), resid_all.quantile(0.95)
-
         left, right = st.columns([1.6, 1], gap="large")
 
         with left:
-            fig = go.Figure()
-            fig.add_trace(
-                go.Scatter(
-                    x=view["timestamp"],
-                    y=view[column] + lo,
-                    mode="lines",
-                    line=dict(width=0),
-                    hoverinfo="skip",
-                    showlegend=False,
+            with st.container(border=True, key="panel-history"):
+                overlay = view.tail(FORECAST_OVERLAY_HOURS)
+                fig = go.Figure()
+                fig.add_trace(
+                    go.Scatter(
+                        x=view["timestamp"],
+                        y=view["actual"],
+                        name="Actual",
+                        line=dict(color=CYAN, width=1.8),
+                    )
                 )
-            )
-            fig.add_trace(
-                go.Scatter(
-                    x=view["timestamp"],
-                    y=view[column] + hi,
-                    mode="lines",
-                    line=dict(width=0),
-                    fill="tonexty",
-                    fillcolor=ACCENT_SOFT,
-                    name=f"90% band ({lo:+.0f} … {hi:+.0f} m³)",
-                    hoverinfo="skip",
+                fig.add_trace(
+                    go.Scatter(
+                        x=overlay["timestamp"],
+                        y=overlay[column],
+                        name="Forecast",
+                        line=dict(color=FORECAST, width=1.8, dash="dash"),
+                    )
                 )
-            )
-            fig.add_trace(
-                go.Scatter(
-                    x=view["timestamp"],
-                    y=view["actual"],
-                    name="Actual",
-                    line=dict(color=ACTUAL, width=1.5),
+                style_chart(
+                    fig,
+                    height=396,
+                    title="Historical & Forecasted Water Demand",
+                    y_title="Demand (m³/h)",
+                    tick_angle=-45,
+                    tick_format="%m/%d %H:%M",
+                    legend_top_right=True,
                 )
-            )
-            fig.add_trace(
-                go.Scatter(
-                    x=view["timestamp"],
-                    y=view[column],
-                    name="Predicted",
-                    line=dict(color=ACCENT, width=1.6),
-                )
-            )
-            style_chart(
-                fig,
-                height=360,
-                title=f"{BACKTEST_HOURS}-hour backtest — actual vs predicted",
-                y_title="m³ / hour",
-            )
-            st.plotly_chart(fig, width="stretch")
-            st.caption(
-                f"Final {BACKTEST_HOURS} hours of the locked test "
-                f"({view['timestamp'].min():%d %b} → {view['timestamp'].max():%d %b %Y}). "
-                "The cyan band is the empirical 90% residual interval."
-            )
+                st.plotly_chart(fig, width="stretch")
 
         with right:
             if importance.empty:
                 st.info("Run `python scripts/make_report.py` for feature importance.")
             else:
-                top6 = importance.head(6).iloc[::-1]
-                f_drv = go.Figure(
-                    go.Bar(
-                        x=top6["importance"],
-                        y=top6["feature"],
-                        orientation="h",
-                        marker=dict(color=ACCENT, line=dict(width=0)),
-                        hovertemplate="%{y}: +%{x:.1f} m³ MAE<extra></extra>",
+                with st.container(border=True, key="panel-drivers"):
+                    top6 = importance.head(6).iloc[::-1]
+                    f_drv = go.Figure(
+                        go.Bar(
+                            x=top6["importance"],
+                            y=top6["feature"],
+                            orientation="h",
+                            marker=dict(color=CYAN, line=dict(width=0)),
+                            hovertemplate="%{y}: +%{x:.1f} m³ MAE<extra></extra>",
+                        )
                     )
-                )
-                style_chart(
-                    f_drv,
-                    height=210,
-                    title="Top-6 feature drivers",
-                    x_title="Δ MAE (m³)",
-                    show_legend=False,
-                )
-                st.plotly_chart(f_drv, width="stretch")
+                    style_chart(
+                        f_drv,
+                        height=196,
+                        title="Feature Importance",
+                        x_title="Δ MAE (m³)",
+                        show_legend=False,
+                    )
+                    f_drv.update_yaxes(tickfont=dict(size=9))
+                    st.plotly_chart(f_drv, width="stretch")
 
             if not predictions.empty:
-                heat = predictions.copy()
-                heat["hour"] = heat["timestamp"].dt.hour
-                heat["day"] = heat["timestamp"].dt.day_name().str[:3]
-                heat["residual"] = heat["actual"] - heat[column]
-                pivot = heat.pivot_table(
-                    index="day", columns="hour", values="residual", aggfunc="mean"
-                ).reindex(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])
+                with st.container(border=True, key="panel-heat"):
+                    heat = predictions.tail(24 * HEATMAP_DAYS).copy()
+                    heat["hour"] = heat["timestamp"].dt.hour
+                    heat["day"] = heat["timestamp"].dt.floor("D")
+                    heat["residual"] = heat["actual"] - heat[column]
+                    pivot = heat.pivot_table(
+                        index="hour", columns="day", values="residual", aggfunc="mean"
+                    ).sort_index(ascending=False)
 
-                f_heat = go.Figure(
-                    go.Heatmap(
-                        z=pivot.values,
-                        x=[f"{h:02d}" for h in pivot.columns],
-                        y=pivot.index,
-                        colorscale="RdBu",
-                        zmid=0,
-                        colorbar=dict(
-                            title=dict(text="m³", font=dict(size=10)),
-                            thickness=8,
-                            len=0.9,
-                            tickfont=dict(size=9),
-                        ),
-                        hovertemplate="%{y} %{x}:00 — %{z:+.0f} m³<extra></extra>",
+                    # Clip the colour range to a robust percentile: residuals are
+                    # heavy-tailed, and letting the extremes set the scale turns
+                    # the panel into noise instead of a readable pattern.
+                    spread = float(np.nanpercentile(np.abs(pivot.to_numpy()), 90))
+
+                    f_heat = go.Figure(
+                        go.Heatmap(
+                            z=pivot.values,
+                            x=[d.strftime("%m/%d") for d in pivot.columns],
+                            y=[f"{h:02d}" for h in pivot.index],
+                            colorscale=[
+                                [0.0, "#F59E0B"],
+                                [0.5, "#0B1120"],
+                                [1.0, "#22D3EE"],
+                            ],
+                            zmid=0,
+                            zmin=-spread,
+                            zmax=spread,
+                            colorbar=dict(
+                                thickness=8,
+                                len=0.9,
+                                outlinewidth=0,
+                                tickfont=dict(size=8),
+                            ),
+                            hovertemplate="%{x} %{y}:00 — %{z:+.0f} m³<extra></extra>",
+                        )
                     )
-                )
-                style_chart(
-                    f_heat,
-                    height=250,
-                    title="Hourly residual heatmap (actual − predicted)",
-                    show_legend=False,
-                )
-                st.plotly_chart(f_heat, width="stretch")
-                st.caption(
-                    "All 6,880 test hours. Blue = over-forecast, red = "
-                    "under-forecast. The bias is structural, not hour-specific: "
-                    "the test block sits above the training range."
-                )
+                    style_chart(
+                        f_heat,
+                        height=238,
+                        title="Hourly Residual Heatmap",
+                        show_legend=False,
+                    )
+                    f_heat.update_yaxes(
+                        tickmode="array",
+                        tickvals=[f"{h:02d}" for h in pivot.index if h % 2 == 0],
+                        tickfont=dict(size=9),
+                    )
+                    f_heat.update_xaxes(tickfont=dict(size=8))
+                    st.plotly_chart(f_heat, width="stretch")
 
     st.divider()
 
