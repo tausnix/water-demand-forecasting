@@ -40,7 +40,10 @@ def test_forecast_tab_renders_metrics(app):
 
 def test_model_leaderboard_renders(app):
     labels = {m.label for m in app.metric}
-    assert any("Locked-test" in label for label in labels)
+    # KPI row labels are "Locked-Test R²" / "Locked-Test MAE"; match the concept,
+    # not a specific capitalisation.
+    assert any("locked-test" in label.lower() for label in labels)
+    assert any("next hour forecast" in label.lower() for label in labels)
 
 
 def test_no_error_banners(app):

@@ -1,8 +1,10 @@
+# Cyber-Teal SCADA control room theme.
 [theme]
-primaryColor = "#0e7490"
-backgroundColor = "#ffffff"
-secondaryBackgroundColor = "#f1f5f9"
-textColor = "#0f172a"
+base = "dark"
+primaryColor = "#06B6D4"
+backgroundColor = "#0B1120"
+secondaryBackgroundColor = "#111827"
+textColor = "#F9FAFB"
 font = "sans serif"
 
 [server]
